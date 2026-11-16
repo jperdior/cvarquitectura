@@ -234,6 +234,42 @@ function addModelStructure(seg, i) {
   }
 }
 
+// ─── Tarjeta de contacto (muro del fondo) ──────────────────────────────────
+function contactCardWide() {
+  return canvasTexture(1024, 512, (g) => {
+    g.fillStyle = '#1d1d1b'; g.fillRect(0, 0, 1024, 512);
+    g.fillStyle = '#9fb8d6'; g.font = '600 30px Inter, sans-serif';
+    g.fillText('GRACIAS POR LA VISITA', 60, 110);
+    g.fillStyle = '#fff'; g.font = '600 72px Inter, sans-serif';
+    g.fillText(architect.name, 60, 230);
+    g.fillStyle = '#cfcac0'; g.font = '34px Inter, sans-serif';
+    g.fillText(architect.role, 60, 300);
+    g.fillText(`${architect.email} · ${architect.city}`, 60, 420);
+  });
+}
+
+function contactCardTall() {
+  return canvasTexture(624, 720, (g, w) => {
+    const pad = 48;
+    // reduce la letra hasta que el texto quepa en el ancho
+    const fit = (text, weight, size) => {
+      g.font = `${weight} ${size}px Inter, sans-serif`;
+      while (g.measureText(text).width > w - pad * 2 && size > 12) g.font = `${weight} ${--size}px Inter, sans-serif`;
+    };
+    g.fillStyle = '#1d1d1b'; g.fillRect(0, 0, w, 720);
+    g.fillStyle = '#9fb8d6'; fit('GRACIAS POR LA VISITA', 600, 30);
+    g.fillText('GRACIAS POR LA VISITA', pad, 110);
+    g.fillStyle = '#fff';
+    const [first, ...rest] = architect.name.split(' ');
+    fit(first, 600, 76); g.fillText(first, pad, 220);
+    if (rest.length) { fit(rest.join(' '), 600, 76); g.fillText(rest.join(' '), pad, 305); }
+    g.fillStyle = '#cfcac0';
+    fit(architect.role, 400, 32); g.fillText(architect.role, pad, 395);
+    fit(architect.email, 400, 32); g.fillText(architect.email, pad, 560);
+    fit(architect.city, 400, 32); g.fillText(architect.city, pad, 610);
+  });
+}
+
 // ─── Construcción por tramos ───────────────────────────────────────────────
 // Cada elemento tiene un estado "final" y una animación de montaje
 // dentro de una ventana [a, b] del progreso de su tramo (0..1).
@@ -371,19 +407,9 @@ function makeSegment(i) {
   // Muro de fondo con contacto en el último tramo
   if (i === N - 1) {
     const card = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.2, 2.1),
-      new THREE.MeshBasicMaterial({
-        map: canvasTexture(1024, 512, (g, w, h) => {
-          g.fillStyle = '#1d1d1b'; g.fillRect(0, 0, w, h);
-          g.fillStyle = '#9fb8d6'; g.font = '600 30px Inter, sans-serif';
-          g.fillText('GRACIAS POR LA VISITA', 60, 110);
-          g.fillStyle = '#fff'; g.font = '600 72px Inter, sans-serif';
-          g.fillText(architect.name, 60, 230);
-          g.fillStyle = '#cfcac0'; g.font = '34px Inter, sans-serif';
-          g.fillText(architect.role, 60, 300);
-          g.fillText(`${architect.email} · ${architect.city}`, 60, 420);
-        }),
-      })
+      // En pantallas verticales la tarjeta apaisada no cabe al final del pasillo: versión vertical
+      portrait() ? new THREE.PlaneGeometry(2.6, 3.0) : new THREE.PlaneGeometry(4.2, 2.1),
+      new THREE.MeshBasicMaterial({ map: portrait() ? contactCardTall() : contactCardWide() })
     );
     card.position.set(0, 2.1, HALL_END + 0.02);
     addEl(seg, card, { a: 0.8, b: 1, ease: easeOutBack, from: { scale: new THREE.Vector3(tiny, tiny, tiny) } });
@@ -455,7 +481,7 @@ function rigAt(s) {
       }
     });
     // Al final mira al muro de contacto
-    const endW = clamp01((q - 0.93) / 0.07);
+    const endW = easeOutCubic(clamp01((q - 0.9) / 0.1));
     if (endW > 0) camLook.lerp(tmp.set(0, 2.1, HALL_END), endW);
   }
   if (s < INTRO) focusedIndex = -1;
@@ -627,7 +653,8 @@ function pick(e) {
 }
 
 addEventListener('pointermove', (e) => {
-  mouse.set((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1);
+  // sólo el ratón mueve la mirada; con el dedo quedaría la vista torcida hacia el último toque
+  if (e.pointerType === 'mouse') mouse.set((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1);
   const obj = pick(e);
   if (obj !== hovered) {
     if (hovered) hovered.material.emissiveIntensity = 0;
