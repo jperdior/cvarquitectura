@@ -22,7 +22,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
-const BG = new THREE.Color('#e9e6df');
+const BG = new THREE.Color('#212830'); // "model space" oscuro de AutoCAD
 scene.background = BG;
 scene.fog = new THREE.Fog(BG, 30, 95);
 
@@ -74,20 +74,7 @@ function box(w, h, d, mat) {
 }
 
 // ─── Materiales ────────────────────────────────────────────────────────────
-const gridTex = canvasTexture(512, 512, (g, w, h) => {
-  g.fillStyle = '#e4e1d9'; g.fillRect(0, 0, w, h);
-  g.strokeStyle = 'rgba(58,110,165,.22)'; g.lineWidth = 2;
-  for (let i = 0; i <= 8; i++) {
-    const p = (i / 8) * w;
-    g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke();
-    g.beginPath(); g.moveTo(0, p); g.lineTo(w, p); g.stroke();
-  }
-});
-gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
-gridTex.repeat.set(40, 40);
-
 const mat = {
-  ground: new THREE.MeshStandardMaterial({ map: gridTex, roughness: 1 }),
   slab: new THREE.MeshStandardMaterial({ color: '#c9c4ba', roughness: 0.85 }),
   floor: new THREE.MeshStandardMaterial({ color: '#b8b1a5', roughness: 0.55 }),
   wall: new THREE.MeshStandardMaterial({ color: '#f2efe9', roughness: 0.95 }),
@@ -95,13 +82,34 @@ const mat = {
   dark: new THREE.MeshStandardMaterial({ color: '#232321', roughness: 0.6 }),
   glow: new THREE.MeshStandardMaterial({ color: '#fff8e8', emissive: '#fff1cf', emissiveIntensity: 1.6 }),
 };
-const ghostMat = new THREE.LineBasicMaterial({ color: '#3a6ea5', transparent: true, opacity: 0.55 });
+const ghostMat = new THREE.LineBasicMaterial({ color: '#4fc3f7', transparent: true, opacity: 0.55 });
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), mat.ground);
+// Suelo estilo AutoCAD: plano oscuro (recibe sombras) + rejilla menor/mayor + ejes X/Y
+const GROUND_Y = -0.31;
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: '#262e38', roughness: 1 })
+);
 ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.31;
+ground.position.y = GROUND_Y - 0.005;
 ground.receiveShadow = true;
 scene.add(ground);
+
+const gridMinor = new THREE.GridHelper(400, 400, '#323b47', '#323b47');
+const gridMajor = new THREE.GridHelper(400, 80, '#46515f', '#46515f');
+gridMinor.position.y = GROUND_Y;
+gridMajor.position.y = GROUND_Y + 0.002;
+scene.add(gridMinor, gridMajor);
+
+function axisLine(color, a, b) {
+  const g = new THREE.BufferGeometry().setFromPoints([a, b]);
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color }));
+  l.position.y = GROUND_Y + 0.004;
+  scene.add(l);
+}
+// En la web la galería avanza en -Z; para el lector de coordenadas Y = -Z (como en planta)
+axisLine('#e5484d', new THREE.Vector3(-200, 0, 0), new THREE.Vector3(200, 0, 0)); // X rojo
+axisLine('#46a758', new THREE.Vector3(0, 0, 200), new THREE.Vector3(0, 0, -200)); // Y verde
 
 // ─── Imágenes procedurales de proyecto (dummy) ─────────────────────────────
 // En la versión real se sustituye por: new THREE.TextureLoader().load(p.image)
@@ -173,18 +181,27 @@ function bigNumberTexture(n) {
 // ?model=0 en la URL fuerza la versión de cajas para comparar.
 const useModel = new URLSearchParams(location.search).get('model') !== '0';
 const modelNodes = new Map();
+const trees = [];
 if (useModel) {
   try {
     const gltf = await new GLTFLoader().loadAsync('models/gallery.glb');
     gltf.scene.traverse((o) => {
       if (!o.isMesh) return;
+      if (o.material.name === 'leaves') {
+        // hojas: recorte por alfa (nítido, con sombras recortadas y sin problemas de orden)
+        Object.assign(o.material, { alphaTest: 0.5, transparent: false, depthWrite: true, side: THREE.DoubleSide });
+      }
       const glass = o.material.name === 'glass';
       o.castShadow = !glass; // el sol atraviesa vidrios y lucernario
       o.receiveShadow = true;
       if (glass) o.material.depthWrite = false;
     });
     for (const child of [...gltf.scene.children]) modelNodes.set(child.name, child);
-    for (const [name, node] of modelNodes) if (name.startsWith('site_')) scene.add(node);
+    for (const [name, node] of modelNodes) {
+      if (!name.startsWith('site_')) continue;
+      scene.add(node);
+      if (name.startsWith('site_tree')) trees.push({ node, phase: Math.random() * 10 });
+    }
   } catch (err) {
     console.warn('No se pudo cargar el modelo; uso cajas', err);
   }
@@ -449,18 +466,22 @@ const toggle = document.getElementById('mode-toggle');
 toggle.textContent = modelNodes.size ? 'Ver versión cajas' : 'Ver modelo de Blender';
 toggle.href = modelNodes.size ? '?model=0' : '?';
 const introEl = document.getElementById('intro');
+const coordsEl = document.getElementById('coords');
 const fillEl = document.querySelector('#progress .fill');
 const currentEl = document.getElementById('current-label');
 const ticksEl = document.getElementById('ticks');
 
 // La visita empieza siempre desde fuera, aunque se recargue a mitad del recorrido
+// Scroll invertido: la página arranca abajo del todo y se avanza haciendo scroll HACIA ARRIBA
+// (como subir/entrar en el edificio). progreso = 1 - posición relativa del scroll.
 history.scrollRestoration = 'manual';
-scrollTo(0, 0);
 const maxScroll = () => document.documentElement.scrollHeight - innerHeight;
+const scrollTopFor = (progress) => (1 - progress) * maxScroll();
+scrollTo(0, maxScroll());
 let sTarget = 0;
 let s = 0;
 addEventListener('scroll', () => {
-  sTarget = clamp01(scrollY / maxScroll());
+  sTarget = clamp01(1 - scrollY / maxScroll());
   if (view.mode === 'focus' && performance.now() > suppressExitUntil) exitFocus();
 }, { passive: true });
 
@@ -505,7 +526,7 @@ function enterFocus(seg) {
   const i = segments.indexOf(seg);
   suppressExitUntil = performance.now() + 400;
   s = sTarget = scrollForProject(i);
-  scrollTo({ top: s * maxScroll(), behavior: 'instant' });
+  scrollTo({ top: scrollTopFor(s), behavior: 'instant' });
   openPanel(seg.project);
 }
 
@@ -626,6 +647,17 @@ function frame() {
   view.offset += (targetOffset - view.offset) * (1 - Math.exp(-dt * 4));
   if (Math.abs(view.offset) > 0.5) camera.setViewOffset(innerWidth, innerHeight, view.offset, 0, innerWidth, innerHeight);
   else camera.clearViewOffset();
+
+  // Viento suave en los árboles
+  const time = clock.elapsedTime;
+  for (const t of trees) {
+    t.node.rotation.z = Math.sin(time * 0.9 + t.phase) * 0.012;
+    t.node.rotation.x = Math.sin(time * 0.7 + t.phase * 1.3) * 0.008;
+  }
+
+  // Lector de coordenadas tipo AutoCAD (X, Y en planta, Z altura)
+  const p = camera.position;
+  coordsEl.textContent = `${p.x.toFixed(4)}, ${(-p.z).toFixed(4)}, ${p.y.toFixed(4)}`;
 
   introEl.classList.toggle('hidden', s > 0.02);
   fillEl.style.height = `${s * 100}%`;

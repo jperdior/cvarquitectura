@@ -19,7 +19,7 @@ import sys
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Euler, Matrix, Quaternion, Vector
 
 # ─── Parámetros (deben coincidir con main.js) ───────────────────────────────
 L, W, H = 10.0, 7.0, 4.2
@@ -117,8 +117,6 @@ material("grout", "#7d776d", 1.0)
 material("wood", "#8c7760", 0.65, tex=make_texture("wood", hex_rgb("#93806a"), 0.10, beta=1.0, seed=31, streaks=True))
 material("metal_dark", "#2a2a28", 0.4, metal=0.8)
 material("glass", "#c9dde6", 0.05, alpha=0.22)
-material("foliage", "#6f8556", 0.9)
-material("bark", "#5a4a3c", 0.9)
 
 
 # ─── Geometría ──────────────────────────────────────────────────────────────
@@ -257,31 +255,138 @@ for i in range(N):
         element(f"seg{i}_back", (0, N * L + 0.12, 0), [((0, 0, H / 2), (W + 0.8, 0.25, H), "plaster")])
 
 
-# ─── Entorno: árboles low-poly ──────────────────────────────────────────────
+# ─── Entorno: árboles con ramas y hojas ─────────────────────────────────────
+# Ramificación recursiva (troncos cónicos) + "tarjetas" de hojas con textura
+# recortada por alfa: es la técnica habitual de árboles en tiempo real.
+def leaf_atlas(name, size=512, seed=3):
+    rng = np.random.default_rng(seed)
+    img_rgba = np.zeros((size, size, 4), dtype=np.float32)
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) / size
+    greens = [(0.25, 0.38, 0.16), (0.33, 0.45, 0.2), (0.4, 0.5, 0.22), (0.22, 0.32, 0.15), (0.45, 0.52, 0.25)]
+    for _ in range(26):
+        cx, cy = 0.15 + rng.random() * 0.7, 0.15 + rng.random() * 0.7
+        ang = rng.random() * math.pi * 2
+        ln, wd = 0.13 + rng.random() * 0.08, 0.045 + rng.random() * 0.025
+        dx, dy = xx - cx, yy - cy
+        u = (dx * math.cos(ang) + dy * math.sin(ang)) / ln          # a lo largo de la hoja
+        v = (-dx * math.sin(ang) + dy * math.cos(ang)) / wd         # a lo ancho
+        t = np.clip((u + 1) / 2, 0, 1)
+        shape = np.abs(v) < np.sin(np.pi * t) ** 0.8
+        shape &= (u > -1) & (u < 1)
+        col = np.array(greens[rng.integers(len(greens))], dtype=np.float32)
+        shade = (0.8 + 0.35 * t)[..., None] * (1 - 0.25 * (np.abs(v) < 0.08)[..., None])  # nervio central
+        rgb = np.clip(col[None, None, :] * shade, 0, 1)
+        img_rgba[shape, :3] = rgb[shape]
+        img_rgba[shape, 3] = 1.0
+    img = bpy.data.images.new(name, size, size, alpha=True)
+    img.pixels.foreach_set(img_rgba[::-1].ravel())
+    img.filepath_raw = os.path.join(TEX_DIR, f"{name}.png")
+    img.file_format = "PNG"
+    img.save()
+    return img
+
+
+def leaf_material():
+    m = bpy.data.materials.new("leaves")
+    try:
+        m.use_nodes = True
+    except Exception:
+        pass
+    nt = m.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None) or nt.nodes.new("ShaderNodeBsdfPrincipled")
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = leaf_atlas("leaves")
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+    bsdf.inputs["Roughness"].default_value = 0.7
+    for attr, val in (("surface_render_method", "DITHERED"), ("blend_method", "CLIP")):
+        try:
+            setattr(m, attr, val)
+        except Exception:
+            pass
+    m.use_backface_culling = False
+    MATS["leaves"] = m
+
+
+leaf_material()
+material("bark", "#5b4b3d", 0.95, tex=make_texture("bark", hex_rgb("#5e4e40"), 0.18, beta=1.0, seed=41, streaks=True))
+
+
+def add_branch(bm, uv, a, b, r0, r1):
+    d = b - a
+    rot = d.normalized().to_track_quat("Z", "Y").to_matrix().to_4x4()
+    mtx = Matrix.Translation((a + b) / 2) @ rot
+    res = bmesh.ops.create_cone(bm, cap_ends=False, cap_tris=False, segments=7,
+                                radius1=r0, radius2=r1, depth=d.length, matrix=mtx, calc_uvs=False)
+    for f in {f for v in res["verts"] for f in v.link_faces}:
+        f.material_index = 0
+        for loop in f.loops:
+            co = loop.vert.co
+            loop[uv].uv = (math.atan2(co.y - a.y, co.x - a.x) / math.pi, co.z * 0.6)
+
+
+def add_leaf_card(bm, uv, c, size, rng):
+    q = Euler((rng.random() * math.pi, rng.random() * math.pi, rng.random() * math.pi)).to_matrix()
+    h = size / 2
+    corners = [Vector((-h, -h, 0)), Vector((h, -h, 0)), Vector((h, h, 0)), Vector((-h, h, 0))]
+    verts = [bm.verts.new(c + q @ p) for p in corners]
+    f = bm.faces.new(verts)
+    f.material_index = 1
+    for loop, (u, v) in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))):
+        loop[uv].uv = (u, v)
+
+
+def grow(bm, uv, rng, start, direction, length, radius, depth, leaves):
+    end = start + direction * length
+    r_end = radius * 0.68
+    add_branch(bm, uv, start, end, radius, r_end)
+    if depth == 0:
+        leaves.append(end)
+        return
+    # hojas también a lo largo de las ramas finas
+    if depth <= 2:
+        for _ in range(2):
+            leaves.append(start + direction * length * rng.random())
+    n = 2 if rng.random() < 0.55 else 3
+    for _ in range(n):
+        axis = direction.orthogonal().normalized()
+        axis.rotate(Quaternion(direction, rng.random() * math.tau))
+        ang = math.radians(22 + rng.random() * 26)
+        nd = direction.copy()
+        nd.rotate(Quaternion(axis, ang))
+        nd = (nd + Vector((0, 0, 0.25))).normalized()  # tendencia a crecer hacia la luz
+        grow(bm, uv, rng, end, nd, length * (0.68 + rng.random() * 0.12), r_end, depth - 1, leaves)
+
+
 def tree(name, x, y, s, seed):
     rng = np.random.default_rng(seed)
     empty = bpy.data.objects.new(name, None)
     empty.location = (x, y, -0.31)
     scene.collection.objects.link(empty)
-    bpy.ops.mesh.primitive_cylinder_add(vertices=7, radius=0.13 * s, depth=2.6 * s, location=(0, 0, 1.3 * s))
-    trunk = bpy.context.active_object
-    trunk.name = name + "_trunk"
-    trunk.data.materials.append(MATS["bark"])
-    trunk.parent = empty
-    for k in range(3):
-        r = (1.0 + rng.random() * 0.6) * s
-        bpy.ops.mesh.primitive_ico_sphere_add(
-            subdivisions=1, radius=r,
-            location=((rng.random() - 0.5) * 1.2 * s, (rng.random() - 0.5) * 1.2 * s, (2.8 + k * 0.7 + rng.random() * 0.4) * s))
-        crown = bpy.context.active_object
-        crown.name = f"{name}_crown{k}"
-        crown.data.materials.append(MATS["foliage"])
-        crown.parent = empty
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
+    leaves = []
+    trunk_len = (2.2 + rng.random() * 0.8) * s
+    lean = Vector(((rng.random() - 0.5) * 0.12, (rng.random() - 0.5) * 0.12, 1)).normalized()
+    grow(bm, uv, rng, Vector((0, 0, 0)), lean, trunk_len, 0.2 * s, 5, leaves)
+    for p in leaves:
+        for _ in range(3):
+            off = Vector(((rng.random() - 0.5), (rng.random() - 0.5), (rng.random() - 0.3))) * 0.7 * s
+            add_leaf_card(bm, uv, p + off, (0.75 + rng.random() * 0.4) * s, rng)
+    bm.normal_update()
+    me = bpy.data.meshes.new(name + "_mesh")
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(MATS["bark"])
+    me.materials.append(MATS["leaves"])
+    obj = bpy.data.objects.new(name + "_mesh", me)
+    obj.parent = empty
+    scene.collection.objects.link(obj)
 
 
 trees_three = [(-9, 6), (-12, -6), (14, -14), (-11, -26), (13, -34), (-12, -48), (14, -56), (-15, 12)]
 for k, (tx, tz) in enumerate(trees_three):
-    tree(f"site_tree_{k}", tx, -tz, 0.75 + (k % 3) * 0.15, 100 + k)
+    tree(f"site_tree_{k}", tx, -tz, 0.85 + (k % 3) * 0.15, 100 + k)
 
 
 # ─── Exportar ───────────────────────────────────────────────────────────────

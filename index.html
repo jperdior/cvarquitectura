@@ -33,13 +33,25 @@
   <section id="intro">
     <p class="kicker">Portfolio</p>
     <h1>Un edificio que se construye<br />mientras lo recorres</h1>
-    <p class="hint">Haz scroll para empezar la obra ↓</p>
+    <p class="hint">Haz scroll hacia arriba para entrar y empezar la obra ↑</p>
   </section>
 
   <nav id="progress" aria-label="Proyectos">
     <div class="track"><div class="fill"></div></div>
     <ol id="ticks"></ol>
   </nav>
+
+  <!-- Detalles "AutoCAD": icono SCP y lector de coordenadas de la cámara -->
+  <div id="cad-status">
+    <svg class="ucs" viewBox="0 0 60 60" aria-hidden="true">
+      <path d="M10 50 H50" stroke="#e5484d" stroke-width="2" />
+      <path d="M10 50 V10" stroke="#46a758" stroke-width="2" />
+      <rect x="7" y="47" width="6" height="6" fill="none" stroke="#c9d1d9" stroke-width="1.2" />
+      <text x="52" y="54">X</text><text x="6" y="8">Y</text>
+    </svg>
+    <span id="coords">0.0000, 0.0000, 0.0000</span>
+    <span class="cmd">Comando: _3DPASEO</span>
+  </div>
 
   <aside id="panel" aria-hidden="true">
     <button class="close" aria-label="Cerrar">×</button>

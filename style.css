@@ -1,8 +1,11 @@
 :root {
   --ink: #1d1d1b;
   --muted: #6d6a63;
-  --paper: #e9e6df;
-  --accent: #3a6ea5;
+  --paper: #212830;
+  --accent: #4fc3f7;
+  --hud-bg: rgba(24, 30, 37, .82);
+  --hud-ink: #e6edf3;
+  --hud-muted: #8b98a5;
 }
 
 * { box-sizing: border-box; }
@@ -20,6 +23,7 @@ html, body {
   width: 100vw;
   height: 100vh;
   display: block;
+  cursor: crosshair;
 }
 
 #scroll-space { height: 1400vh; }
@@ -33,15 +37,23 @@ html, body {
   padding: 20px 24px;
   pointer-events: none;
 }
-.brand { display: flex; flex-direction: column; gap: 2px; }
+.brand, .current {
+  background: var(--hud-bg);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 4px;
+  padding: 10px 14px;
+}
+.current:empty { display: none; }
+.brand { display: flex; flex-direction: column; gap: 2px; color: var(--hud-ink); }
 .brand strong { font-size: 15px; letter-spacing: .02em; }
-.brand span { font-size: 12px; color: var(--muted); }
+.brand span { font-size: 12px; color: var(--hud-muted); }
 #mode-toggle { pointer-events: auto; margin-top: 6px; font-size: 11px; color: var(--accent); }
 .current {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .12em;
-  color: var(--muted);
+  color: var(--hud-ink);
   transition: opacity .3s;
 }
 
@@ -51,13 +63,14 @@ html, body {
   bottom: 12vh;
   max-width: 560px;
   pointer-events: none;
+  color: var(--hud-ink);
   transition: opacity .4s, transform .4s;
 }
 #intro .kicker {
   text-transform: uppercase; letter-spacing: .2em; font-size: 12px; color: var(--accent); margin: 0 0 8px;
 }
 #intro h1 { font-size: clamp(28px, 4.5vw, 52px); line-height: 1.05; margin: 0 0 16px; font-weight: 600; }
-#intro .hint { color: var(--muted); font-size: 14px; margin: 0; }
+#intro .hint { color: var(--hud-muted); font-size: 14px; margin: 0; }
 #intro.hidden { opacity: 0; transform: translateY(20px); }
 
 #progress {
@@ -68,22 +81,40 @@ html, body {
   display: flex;
   gap: 12px;
   padding: 14px 16px;
-  background: rgba(250, 249, 246, .78);
+  background: var(--hud-bg);
+  border: 1px solid rgba(255,255,255,.06);
   backdrop-filter: blur(6px);
   border-radius: 6px;
 }
-#progress .track { width: 2px; background: rgba(0,0,0,.12); position: relative; }
-#progress .fill { position: absolute; top: 0; left: 0; width: 100%; background: var(--ink); height: 0; }
-#ticks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+#progress .track { width: 2px; background: rgba(255,255,255,.12); position: relative; }
+/* se avanza hacia arriba: la barra se llena desde abajo y el 01 queda abajo, como una planta baja */
+#progress .fill { position: absolute; bottom: 0; left: 0; width: 100%; background: var(--accent); height: 0; }
+#ticks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column-reverse; gap: 14px; }
 #ticks button {
   all: unset;
   cursor: pointer;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--hud-muted);
   letter-spacing: .04em;
   transition: color .2s;
 }
-#ticks button:hover, #ticks button.active { color: var(--ink); font-weight: 600; }
+#ticks button:hover, #ticks button.active { color: var(--hud-ink); font-weight: 600; }
+
+#cad-status {
+  position: fixed;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--hud-muted);
+  pointer-events: none;
+}
+#cad-status .ucs { width: 44px; height: 44px; }
+#cad-status .ucs text { fill: #c9d1d9; font: 9px ui-monospace, monospace; }
+#cad-status #coords, #cad-status .cmd { background: var(--hud-bg); padding: 6px 8px; border-radius: 3px; }
+#cad-status #coords { color: var(--hud-ink); }
 
 #panel {
   position: fixed;
@@ -100,7 +131,7 @@ html, body {
 #panel .close {
   all: unset; cursor: pointer; position: absolute; top: 16px; right: 20px; font-size: 28px; line-height: 1;
 }
-#panel .meta { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: .15em; margin: 0; }
+#panel .meta { color: #2b7bb9; font-size: 12px; text-transform: uppercase; letter-spacing: .15em; margin: 0; }
 #panel h2 { font-size: 30px; margin: 8px 0 24px; }
 #panel dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; margin: 0 0 24px; }
 #panel dt { color: var(--muted); }
@@ -108,5 +139,5 @@ html, body {
 #panel #p-desc { line-height: 1.6; font-size: 15px; }
 
 @media (max-width: 640px) {
-  #progress { display: none; }
+  #progress, #cad-status .cmd { display: none; }
 }
