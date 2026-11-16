@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portfolio · Edificio interactivo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <!-- Espacio de scroll: la posición del scroll es la "línea de tiempo" del recorrido -->
+  <div id="scroll-space"></div>
+
+  <header class="hud">
+    <div class="brand">
+      <strong id="arch-name"></strong>
+      <span id="arch-role"></span>
+    </div>
+    <div class="current" id="current-label"></div>
+  </header>
+
+  <section id="intro">
+    <p class="kicker">Portfolio</p>
+    <h1>Un edificio que se construye<br />mientras lo recorres</h1>
+    <p class="hint">Haz scroll para empezar la obra ↓</p>
+  </section>
+
+  <nav id="progress" aria-label="Proyectos">
+    <div class="track"><div class="fill"></div></div>
+    <ol id="ticks"></ol>
+  </nav>
+
+  <aside id="panel" aria-hidden="true">
+    <button class="close" aria-label="Cerrar">×</button>
+    <p class="meta" id="p-meta"></p>
+    <h2 id="p-title"></h2>
+    <dl>
+      <dt>Ubicación</dt><dd id="p-location"></dd>
+      <dt>Tipología</dt><dd id="p-type"></dd>
+      <dt>Superficie</dt><dd id="p-surface"></dd>
+    </dl>
+    <p id="p-desc"></p>
+  </aside>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
