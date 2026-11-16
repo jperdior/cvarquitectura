@@ -36,6 +36,7 @@ html, body {
 .brand { display: flex; flex-direction: column; gap: 2px; }
 .brand strong { font-size: 15px; letter-spacing: .02em; }
 .brand span { font-size: 12px; color: var(--muted); }
+#mode-toggle { pointer-events: auto; margin-top: 6px; font-size: 11px; color: var(--accent); }
 .current {
   font-size: 12px;
   text-transform: uppercase;
