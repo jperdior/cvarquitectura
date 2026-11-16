@@ -178,11 +178,10 @@ function bigNumberTexture(n) {
 // ─── Modelo de Blender (models/gallery.glb) ────────────────────────────────
 // Generado con blender/build_gallery.py. Cada pieza es un nodo "seg{i}_{pieza}"
 // con origen en su base; aquí sólo decidimos CÓMO se monta cada tipo de pieza.
-// ?model=0 en la URL fuerza la versión de cajas para comparar.
-const useModel = new URLSearchParams(location.search).get('model') !== '0';
+// Si el modelo no carga, se usa como respaldo la versión de cajas generada en código.
 const modelNodes = new Map();
 const trees = [];
-if (useModel) {
+{
   try {
     const gltf = await new GLTFLoader().loadAsync('models/gallery.glb');
     gltf.scene.traverse((o) => {
@@ -462,26 +461,34 @@ function rigAt(s) {
 // ─── Scroll, UI e interacción ──────────────────────────────────────────────
 document.getElementById('arch-name').textContent = architect.name;
 document.getElementById('arch-role').textContent = architect.role;
-const toggle = document.getElementById('mode-toggle');
-toggle.textContent = modelNodes.size ? 'Ver versión cajas' : 'Ver modelo de Blender';
-toggle.href = modelNodes.size ? '?model=0' : '?';
 const introEl = document.getElementById('intro');
 const coordsEl = document.getElementById('coords');
+// La barra de estado CAD (ejes + coordenadas) es sólo una ayuda de desarrollo
+const DEV = ['localhost', '127.0.0.1'].includes(location.hostname);
+if (!DEV) document.getElementById('cad-status').remove();
+document.querySelector('#intro .hint').textContent = matchMedia('(pointer: coarse)').matches
+  ? 'Desliza hacia arriba para entrar y empezar la obra ↑'
+  : 'Haz scroll hacia arriba para entrar y empezar la obra ↑';
 const fillEl = document.querySelector('#progress .fill');
 const currentEl = document.getElementById('current-label');
 const ticksEl = document.getElementById('ticks');
 
 // La visita empieza siempre desde fuera, aunque se recargue a mitad del recorrido
-// Scroll invertido: la página arranca abajo del todo y se avanza haciendo scroll HACIA ARRIBA
-// (como subir/entrar en el edificio). progreso = 1 - posición relativa del scroll.
+// Dirección del recorrido según el dispositivo:
+// · Ratón/trackpad: la página arranca abajo y se avanza con la rueda HACIA ARRIBA.
+// · Táctil: se avanza deslizando el dedo HACIA ARRIBA (empujar hacia delante),
+//   que en el navegador es scroll normal hacia abajo → no se invierte.
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+const INVERT = !TOUCH;
 history.scrollRestoration = 'manual';
 const maxScroll = () => document.documentElement.scrollHeight - innerHeight;
-const scrollTopFor = (progress) => (1 - progress) * maxScroll();
-scrollTo(0, maxScroll());
+const progressFromScroll = (y) => (INVERT ? 1 - y / maxScroll() : y / maxScroll());
+const scrollTopFor = (progress) => (INVERT ? 1 - progress : progress) * maxScroll();
+scrollTo(0, scrollTopFor(0));
 let sTarget = 0;
 let s = 0;
 addEventListener('scroll', () => {
-  sTarget = clamp01(1 - scrollY / maxScroll());
+  sTarget = clamp01(progressFromScroll(scrollY));
   if (view.mode === 'focus' && performance.now() > suppressExitUntil) exitFocus();
 }, { passive: true });
 
@@ -656,8 +663,10 @@ function frame() {
   }
 
   // Lector de coordenadas tipo AutoCAD (X, Y en planta, Z altura)
-  const p = camera.position;
-  coordsEl.textContent = `${p.x.toFixed(4)}, ${(-p.z).toFixed(4)}, ${p.y.toFixed(4)}`;
+  if (DEV) {
+    const p = camera.position;
+    coordsEl.textContent = `${p.x.toFixed(4)}, ${(-p.z).toFixed(4)}, ${p.y.toFixed(4)}`;
+  }
 
   introEl.classList.toggle('hidden', s > 0.02);
   fillEl.style.height = `${s * 100}%`;
