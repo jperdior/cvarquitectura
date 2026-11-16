@@ -26,7 +26,10 @@ const BG = new THREE.Color('#212830'); // "model space" oscuro de AutoCAD
 scene.background = BG;
 scene.fog = new THREE.Fog(BG, 30, 95);
 
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 250);
+// En pantallas verticales (móvil) se abre algo el ángulo para no ver el mundo "por una rendija"
+const portrait = () => innerWidth / innerHeight < 0.8;
+const baseFov = () => (portrait() ? 70 : 55);
+const camera = new THREE.PerspectiveCamera(baseFov(), innerWidth / innerHeight, 0.1, 250);
 
 scene.add(new THREE.HemisphereLight('#ffffff', '#d9d2c4', 1.3));
 const sun = new THREE.DirectionalLight('#fff3dc', 2.4);
@@ -447,7 +450,8 @@ function rigAt(s) {
       if (w > best) { best = w; if (w > 0.45) focusedIndex = i; }
       if (w > 0.01) {
         tmp.set(seg.side * (W / 2), 2.05, seg.zc);
-        camLook.lerp(tmp, w * 0.75);
+        // en vertical hay que girar del todo hacia el cuadro o se queda fuera de la pantalla
+        camLook.lerp(tmp, w * (portrait() ? 1 : 0.75));
       }
     });
     // Al final mira al muro de contacto
@@ -471,6 +475,8 @@ document.querySelector('#intro .hint').textContent = matchMedia('(pointer: coars
   : 'Haz scroll hacia arriba para entrar y empezar la obra ↑';
 const fillEl = document.querySelector('#progress .fill');
 const currentEl = document.getElementById('current-label');
+// El rótulo del proyecto actual también abre la ficha (más fácil de acertar en móvil)
+currentEl.addEventListener('click', () => { if (focusedIndex >= 0) enterFocus(segments[focusedIndex]); });
 const ticksEl = document.getElementById('ticks');
 
 // La visita empieza siempre desde fuera, aunque se recargue a mitad del recorrido
@@ -496,7 +502,7 @@ addEventListener('scroll', () => {
 // path   → la cámara sigue el recorrido del scroll
 // focus  → la cámara viaja hasta quedar frontal a un proyecto
 // return → vuelve suavemente al recorrido
-const view = { mode: 'path', seg: null, t: 1, offset: 0, fromPos: new THREE.Vector3(), fromLook: new THREE.Vector3() };
+const view = { mode: 'path', seg: null, t: 1, ox: 0, oy: 0, fromPos: new THREE.Vector3(), fromLook: new THREE.Vector3() };
 const lastLook = new THREE.Vector3();
 const focusPos = new THREE.Vector3();
 const focusLook = new THREE.Vector3();
@@ -504,17 +510,31 @@ let suppressExitUntil = 0;
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-function panelCover() {
-  // ancho que tapa el panel lateral (en móvil lo tapa todo: no compensamos)
-  const w = Math.min(420, innerWidth);
-  return w > innerWidth * 0.8 ? 0 : w;
+// Escritorio: la ficha es un panel lateral → el cuadro se centra en la zona izquierda.
+// Móvil: la ficha es una hoja inferior (42 % de alto) → el cuadro se centra en la zona de arriba.
+const mobileLayout = () => innerWidth <= 640;
+const panelCover = () => (mobileLayout() ? 0 : Math.min(420, innerWidth));
+const sheetCover = () => (mobileLayout() ? Math.round(innerHeight * 0.42) : 0);
+const FRAME_W = 4.6;   // ancho del cuadro + margen
+const FRAME_H = 3.4;   // alto del cuadro + margen
+const FOCUS_DMAX = W - 0.6; // no podemos alejarnos más que el ancho de la galería
+
+// Fracciones de la pantalla (respecto al alto) que quedan libres para ver el cuadro
+const freeArea = () => ({ w: (innerWidth - panelCover()) / innerHeight, h: (innerHeight - sheetCover()) / innerHeight });
+
+// En pantallas estrechas (móvil en vertical) el cuadro no cabe ni desde la pared de
+// enfrente con el ángulo normal: se abre el campo de visión lo justo para que quepa.
+function focusFov() {
+  const a = freeArea();
+  const tanNeeded = Math.max(FRAME_H / (2 * FOCUS_DMAX * a.h), FRAME_W / (2 * FOCUS_DMAX * a.w));
+  return THREE.MathUtils.clamp(2 * THREE.MathUtils.radToDeg(Math.atan(tanNeeded)), baseFov(), 85);
 }
 
 function computeFocusPose(seg) {
-  const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const aspect = (innerWidth - panelCover()) / innerHeight;
-  // distancia para que el cuadro (3.8 × 2.75) quepa con margen en la zona libre
-  const d = Math.min(W - 0.6, Math.max(3.4 / (2 * tanH), 4.8 / (2 * tanH * aspect)));
+  const tanH = Math.tan(THREE.MathUtils.degToRad(focusFov() / 2));
+  const a = freeArea();
+  // distancia para que el cuadro quepa con margen en la zona libre
+  const d = Math.min(FOCUS_DMAX, Math.max(FRAME_H / (2 * tanH * a.h), FRAME_W / (2 * tanH * a.w)));
   const fx = seg.side * (W / 2 - 0.04);
   focusPos.set(fx - seg.side * d, 2.05, seg.zc);
   focusLook.set(fx, 2.05, seg.zc);
@@ -546,8 +566,13 @@ function exitFocus() {
   closePanel();
 }
 
-addEventListener('wheel', () => { if (view.mode === 'focus' && performance.now() > suppressExitUntil) exitFocus(); }, { passive: true });
-addEventListener('touchmove', () => { if (view.mode === 'focus' && performance.now() > suppressExitUntil) exitFocus(); }, { passive: true });
+// Mover la rueda o el dedo fuera de la ficha te aparta del cuadro; dentro de la ficha sólo la desplaza
+const leaveOnGesture = (e) => {
+  if (panel.contains(e.target)) return;
+  if (view.mode === 'focus' && performance.now() > suppressExitUntil) exitFocus();
+};
+addEventListener('wheel', leaveOnGesture, { passive: true });
+addEventListener('touchmove', leaveOnGesture, { passive: true });
 
 function scrollForProject(i) {
   const zFocus = segments[i].zc + 3;
@@ -577,10 +602,17 @@ function openPanel(p) {
   panel.setAttribute('aria-hidden', 'false');
 }
 function closePanel() {
-  panel.classList.remove('open');
+  panel.classList.remove('open', 'expanded');
   panel.setAttribute('aria-hidden', 'true');
+  panel.scrollTop = 0;
 }
 panel.querySelector('.close').addEventListener('click', exitFocus);
+// Móvil: el asa de la hoja inferior la despliega para leer la ficha entera (y la vuelve a recoger)
+const sheetHandle = panel.querySelector('.sheet-handle');
+sheetHandle.addEventListener('click', () => {
+  const expanded = panel.classList.toggle('expanded');
+  sheetHandle.setAttribute('aria-label', expanded ? 'Recoger ficha' : 'Ampliar ficha');
+});
 addEventListener('keydown', (e) => { if (e.key === 'Escape') exitFocus(); });
 
 const raycaster = new THREE.Raycaster();
@@ -650,10 +682,15 @@ function frame() {
   camera.lookAt(lastLook);
 
   // Desplaza el centro óptico para que el cuadro quede centrado en la zona no tapada por el panel
-  const targetOffset = view.mode === 'focus' ? panelCover() / 2 : 0;
-  view.offset += (targetOffset - view.offset) * (1 - Math.exp(-dt * 4));
-  if (Math.abs(view.offset) > 0.5) camera.setViewOffset(innerWidth, innerHeight, view.offset, 0, innerWidth, innerHeight);
+  // (y en móvil, en la zona de arriba no tapada por la hoja inferior; abriendo el ángulo si hace falta)
+  const focusing = view.mode === 'focus';
+  const k = 1 - Math.exp(-dt * 4);
+  view.ox += ((focusing ? panelCover() / 2 : 0) - view.ox) * k;
+  view.oy += ((focusing ? sheetCover() / 2 : 0) - view.oy) * k;
+  camera.fov += ((focusing ? focusFov() : baseFov()) - camera.fov) * k;
+  if (Math.abs(view.ox) > 0.5 || Math.abs(view.oy) > 0.5) camera.setViewOffset(innerWidth, innerHeight, view.ox, view.oy, innerWidth, innerHeight);
   else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
 
   // Viento suave en los árboles
   const time = clock.elapsedTime;
@@ -671,7 +708,7 @@ function frame() {
   introEl.classList.toggle('hidden', s > 0.02);
   fillEl.style.height = `${s * 100}%`;
   tickButtons.forEach((b, i) => b.classList.toggle('active', i === focusedIndex));
-  currentEl.textContent = focusedIndex >= 0 ? `${String(focusedIndex + 1).padStart(2, '0')} — ${projects[focusedIndex].title} · clic para ver` : '';
+  currentEl.textContent = focusedIndex >= 0 && view.mode !== 'focus' ? `${String(focusedIndex + 1).padStart(2, '0')} — ${projects[focusedIndex].title} · ${TOUCH ? 'toca' : 'clic'} para ver` : '';
 
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
